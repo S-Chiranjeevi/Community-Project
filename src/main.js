@@ -45,12 +45,23 @@ async function initializeClerk() {
     return;
   }
   const frontendApi = atob(clerkPublishableKey.split('_')[2]).replace(/\$$/, '');
-  await loadScript(`https://${frontendApi}/npm/@clerk/clerk-js@6/dist/clerk.browser.js`);
   await loadScript(`https://${frontendApi}/npm/@clerk/ui@1/dist/ui.browser.js`);
-  clerk = new window.Clerk(clerkPublishableKey);
+  await loadClerkScript(`https://${frontendApi}/npm/@clerk/clerk-js@6/dist/clerk.browser.js`, clerkPublishableKey);
+  clerk = window.Clerk;
   await clerk.load({ ui: { ClerkUI: window.__internal_ClerkUICtor } });
   clerk.addListener(() => updateAuthUI(clerk));
   updateAuthUI(clerk);
+}
+function loadClerkScript(src, publishableKey) {
+  return new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = src;
+    script.crossOrigin = 'anonymous';
+    script.dataset.clerkPublishableKey = publishableKey;
+    script.onload = resolve;
+    script.onerror = () => reject(new Error('Could not load ClerkJS.'));
+    document.head.append(script);
+  });
 }
 function loadScript(src) {
   return new Promise((resolve, reject) => {
