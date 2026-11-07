@@ -5,6 +5,7 @@ const toast = $('#toast');
 let toastTimeout;
 let clerk;
 let mountedAuthMode = null;
+let lastAuthenticatedUserId = null;
 let cameraStream;
 let poseLandmarker;
 let animationFrame;
@@ -41,6 +42,7 @@ async function api(path, options = {}) {
 async function initializeClerk() {
   const { clerkPublishableKey } = await fetch('/api/config').then((response) => response.json());
   if (!clerkPublishableKey) {
+    document.body.classList.remove('auth-required');
     $('#authButton').textContent = 'Add Clerk keys';
     $('#signInNotice').textContent = 'Add your Clerk keys to the local .env file, restart the app, then sign in. Use fictional details for this student demo.';
     return;
@@ -81,6 +83,9 @@ function updateAuthUI(state) {
   $('#profileForm').hidden = !signedIn;
   const user = state.user;
   if (signedIn && user) {
+    document.body.classList.remove('auth-required');
+    document.body.classList.add('profile-required');
+    $('#closeAuth').hidden = false;
     $('#authDialog').close();
     const slot = $('#userButton');
     slot.replaceChildren();
@@ -88,10 +93,19 @@ function updateAuthUI(state) {
     slot.innerHTML = '<span id="clerkUserButton"></span><span><strong></strong><small>Signed in with Clerk</small></span>';
     slot.querySelector('strong').textContent = user.fullName || user.primaryEmailAddress?.emailAddress || 'Your account';
     try { state.mountUserButton(slot.querySelector('#clerkUserButton')); } catch { /* The sign-in button remains available. */ }
-    loadProfile().catch((error) => showToast(error.message));
+    if (lastAuthenticatedUserId !== user.id) {
+      lastAuthenticatedUserId = user.id;
+      loadProfile().catch((error) => showToast(error.message));
+    }
   } else {
+    lastAuthenticatedUserId = null;
+    document.body.classList.add('auth-required');
+    document.body.classList.remove('profile-required');
+    $('#closeAuth').hidden = true;
     $('#userButton').innerHTML = '<span class="avatar">?</span><span><strong>Guest</strong><small>Sign in to save your profile</small></span>';
     $('#recommendationResult').innerHTML = '<div class="empty-recommendation">Sign in and save your profile to get started.</div>';
+    mountAuthScreen('sign-in');
+    if (!$('#authDialog').open) $('#authDialog').showModal();
   }
 }
 $('#authButton').addEventListener('click', () => {
@@ -127,11 +141,20 @@ $('#authModes').addEventListener('click', (event) => {
   if (button) mountAuthScreen(button.dataset.authMode);
 });
 $('#closeAuth').addEventListener('click', () => $('#authDialog').close());
+$('#authDialog').addEventListener('cancel', (event) => {
+  if (document.body.classList.contains('auth-required')) event.preventDefault();
+});
 
 async function loadProfile() {
   const { profile } = await api('/api/profile');
-  if (!profile) return;
   const form = $('#profileForm');
+  if (!profile) {
+    form.reset();
+    $('#profileStatus').textContent = 'Complete your movement profile to continue.';
+    $('#breadcrumb').innerHTML = 'Getting started <span>/</span> Your profile';
+    document.body.classList.add('profile-required');
+    return;
+  }
   form.elements.goals.value = profile.goals || '';
   form.elements.injuries.value = profile.injuries || '';
   form.elements.medicalHistory.value = profile.medicalHistory || '';
@@ -139,7 +162,9 @@ async function loadProfile() {
   form.elements.painLevel.value = profile.painLevel || 'unsure';
   [...form.querySelectorAll('[name="affectedJoints"]')].forEach((input) => { input.checked = profile.affectedJoints?.includes(input.value) || false; });
   $('#profileStatus').textContent = 'Profile loaded from your private Clerk metadata.';
+  $('#breadcrumb').innerHTML = 'Your space <span>/</span> Overview';
   $('#recommendationResult').innerHTML = '<div class="empty-recommendation">Your profile is ready. Add a goal and consent to request suggestions.</div>';
+  document.body.classList.remove('profile-required');
 }
 $('#profileForm').addEventListener('submit', async (event) => {
   event.preventDefault();
@@ -156,6 +181,8 @@ $('#profileForm').addEventListener('submit', async (event) => {
   try {
     await api('/api/profile', { method: 'PUT', body: JSON.stringify(profile) });
     $('#profileStatus').textContent = 'Saved privately to your Clerk account.';
+    document.body.classList.remove('profile-required');
+    $('#breadcrumb').innerHTML = 'Your space <span>/</span> Overview';
     showToast('Your movement profile was saved.');
   } catch (error) { $('#profileStatus').textContent = error.message; }
 });
@@ -304,7 +331,13 @@ document.querySelectorAll('.mood-option').forEach((button) => button.addEventLis
 }));
 $('.today-label').textContent = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
 window.addEventListener('beforeunload', stopCamera);
-initializeClerk().catch((error) => { console.error(error); showToast(`Clerk setup issue: ${error.message}`); });
+initializeClerk().catch((error) => {
+  console.error(error);
+  document.body.classList.remove('auth-required');
+  $('#signInNotice').hidden = false;
+  $('#signInNotice').textContent = `Clerk setup issue: ${error.message}. Check your local .env keys and restart the app.`;
+  showToast(`Clerk setup issue: ${error.message}`);
+});
 
 
 
