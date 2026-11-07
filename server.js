@@ -10,7 +10,7 @@ const ai = process.env.GEMINI_API_KEY ? new GoogleGenAI({ apiKey: process.env.GE
 const recommendationRequests = new Map();
 
 app.use(express.json({ limit: '32kb' }));
-app.use(clerkMiddleware());
+app.use(clerkMiddleware({ publishableKey: process.env.VITE_CLERK_PUBLISHABLE_KEY }));
 app.use(express.static('dist'));
 app.get('/api/config', (_req, res) => res.json({ clerkPublishableKey: process.env.VITE_CLERK_PUBLISHABLE_KEY || '' }));
 
