@@ -4,6 +4,7 @@ const $ = (selector) => document.querySelector(selector);
 const toast = $('#toast');
 let toastTimeout;
 let clerk;
+let mountedAuthMode = null;
 let cameraStream;
 let poseLandmarker;
 let animationFrame;
@@ -80,6 +81,7 @@ function updateAuthUI(state) {
   $('#profileForm').hidden = !signedIn;
   const user = state.user;
   if (signedIn && user) {
+    $('#authDialog').close();
     const slot = $('#userButton');
     slot.replaceChildren();
     slot.className = 'profile-button';
@@ -93,12 +95,36 @@ function updateAuthUI(state) {
   }
 }
 $('#authButton').addEventListener('click', () => {
-  if (!clerk) { showToast('Add VITE_CLERK_PUBLISHABLE_KEY to .env, then restart the app.'); return; }
+  if (!clerk) { showToast('Clerk is still loading. Please try again in a moment.'); return; }
+  if (clerk.isSignedIn) {
+    mountAuthScreen('profile');
+  } else {
+    mountAuthScreen('sign-in');
+  }
+  if (!$('#authDialog').open) $('#authDialog').showModal();
+});
+function mountAuthScreen(mode) {
+  if (!clerk) return;
   const mount = $('#authMount');
+  const tabs = $('#authModes');
+  tabs.hidden = mode === 'profile';
+  for (const button of tabs.querySelectorAll('[data-auth-mode]')) {
+    const selected = button.dataset.authMode === mode;
+    button.classList.toggle('active', selected);
+    button.setAttribute('aria-pressed', String(selected));
+  }
+  if (mountedAuthMode === 'sign-in') clerk.unmountSignIn(mount);
+  if (mountedAuthMode === 'sign-up') clerk.unmountSignUp(mount);
+  if (mountedAuthMode === 'profile') clerk.unmountUserProfile(mount);
   mount.replaceChildren();
-  if (clerk.isSignedIn) clerk.mountUserProfile(mount);
+  if (mode === 'profile') clerk.mountUserProfile(mount);
+  else if (mode === 'sign-up') clerk.mountSignUp(mount);
   else clerk.mountSignIn(mount);
-  $('#authDialog').showModal();
+  mountedAuthMode = mode;
+}
+$('#authModes').addEventListener('click', (event) => {
+  const button = event.target.closest('[data-auth-mode]');
+  if (button) mountAuthScreen(button.dataset.authMode);
 });
 $('#closeAuth').addEventListener('click', () => $('#authDialog').close());
 
