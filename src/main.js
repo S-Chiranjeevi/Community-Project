@@ -12,6 +12,8 @@ let animationFrame;
 let lastVideoTime = -1;
 let repCount = 0;
 let raised = false;
+let neckNeutralTurn = null;
+let shoulderNeutralLift = null;
 let lastCueAt = 0;
 const POSE_CONNECTIONS = [
   [0, 1], [1, 2], [2, 3], [3, 7], [0, 4], [4, 5], [5, 6], [6, 8], [9, 10],
@@ -238,8 +240,8 @@ function renderRecommendations(data) {
 }
 
 const feedbackMessages = {
-  'shoulder-rolls': 'Keep shoulder rolls small and comfortable. The camera shows shoulder level, but cannot measure the circular roll itself.',
-  'neck-range': 'Turn your head slowly and stay within a comfortable range. Head turn and tilt are rough camera estimates.'
+  'shoulder-rolls': 'Gently lift both shoulders, then relax them to complete one rep. This camera estimate does not measure circular shoulder rolls.',
+  'neck-range': 'Turn your head gently to either side, then return to your comfortable center position to complete one rep.'
 };
 function updateMovementMetrics() {
   const mode = $('#liveExercise').value;
@@ -248,14 +250,13 @@ function updateMovementMetrics() {
   $('#shoulderMetricCell').hidden = mode === 'neck-range';
   $('#elbowMetricCell').hidden = !armRaise;
   $('#neckMetricCell').hidden = mode !== 'neck-range';
-  // Keep the counter visible when users switch movements; only arm raises
-  // currently have a repetition detector wired to this value.
+  // Repetition counting is supported for each listed movement.
   $('#repMetricCell').hidden = false;
   $('#shoulderMetricCell').firstChild.textContent = shoulderCheck ? 'Shoulder level ' : 'Shoulder raise ';
   $('#neckMetricCell').firstChild.textContent = 'Head turn / tilt ';
 }
 updateMovementMetrics();
-$('#liveExercise').addEventListener('change', () => { repCount = 0; raised = false; $('#repMetric').textContent = '0'; updateMovementMetrics(); setStatus(feedbackMessages[$('#liveExercise').value] || 'Sit comfortably. Raise slowly only within your comfortable range.'); });
+$('#liveExercise').addEventListener('change', () => { repCount = 0; raised = false; neckNeutralTurn = null; shoulderNeutralLift = null; $('#repMetric').textContent = '0'; updateMovementMetrics(); setStatus(feedbackMessages[$('#liveExercise').value] || 'Sit comfortably. Raise slowly only within your comfortable range.'); });
 $('#cameraButton').addEventListener('click', async () => {
   if (cameraStream) { stopCamera(); return; }
   if (!navigator.mediaDevices?.getUserMedia) { showToast('Camera access needs HTTPS or localhost.'); return; }
@@ -349,16 +350,27 @@ function processPose(points, worldPoints) {
   const mode = $('#liveExercise').value;
   if (mode === 'neck-range') {
     if (!head) { setStatus('Keep your face and both shoulders in view to estimate head movement.'); return; }
-    if (Math.abs(head.turn) > 35 || Math.abs(head.tilt) > 20) setStatus('That is a larger head movement estimate. Slow down and stay within a comfortable range.', 'warning');
-    else setStatus('Slow, gentle head movement detected. Stop if you feel pain, dizziness, or unusual discomfort.', 'success');
+    if (neckNeutralTurn === null) neckNeutralTurn = head.turn;
+    const turnFromNeutral = Math.abs(head.turn - neckNeutralTurn);
+    if (turnFromNeutral > 14 && !raised) raised = true;
+    if (turnFromNeutral < 7 && raised) { repCount += 1; raised = false; $('#repMetric').textContent = String(repCount); }
+    if (Math.abs(head.tilt) > 20) setStatus('Your head tilt estimate is large. Keep the movement gentle and comfortable.', 'warning');
+    else if (raised) setStatus('Good. Slowly return your head toward center to complete the rep.', 'success');
+    else setStatus('Turn gently to either side, then return to center. Stop if you feel pain or dizziness.', 'info');
     return;
   }
   if (mode === 'shoulder-rolls') {
     const tilt = estimateShoulderTilt(points);
     if (tilt === null) { setStatus(feedbackMessages[mode]); return; }
     $('#shoulderMetric').textContent = `${tilt > 0 ? '+' : ''}${Math.round(tilt)}°`;
-    if (Math.abs(tilt) > 12) setStatus('Your shoulders appear tilted in the camera view. Find a comfortable, relaxed position.', 'warning');
-    else setStatus('Your shoulders look roughly level. The camera cannot measure the rolling circle itself.', 'info');
+    const lift = estimateShoulderLift(points);
+    if (lift === null) { setStatus('Keep both shoulders and hips in view to count shoulder lifts.'); return; }
+    if (shoulderNeutralLift === null) shoulderNeutralLift = lift;
+    if (lift > shoulderNeutralLift + 0.045 && !raised) raised = true;
+    if (lift < shoulderNeutralLift + 0.02 && raised) { repCount += 1; raised = false; $('#repMetric').textContent = String(repCount); }
+    if (Math.abs(tilt) > 18) setStatus('Your shoulders look uneven in this camera view. Settle into a comfortable position.', 'warning');
+    else if (raised) setStatus('Gently relax your shoulders to complete the rep.', 'success');
+    else setStatus('Gently lift both shoulders, then relax. Stop if this causes discomfort.', 'info');
     return;
   }
   if (!shoulders.length) { setStatus('Bring a shoulder, elbow, and hip into view.'); return; }
@@ -402,10 +414,20 @@ function estimateShoulderTilt(points) {
   if (![11, 12].every((i) => (points[i]?.visibility ?? 0) > 0.45)) return null;
   return Math.atan2(points[12].y - points[11].y, points[12].x - points[11].x) * (180 / Math.PI);
 }
+function estimateShoulderLift(points) {
+  if (![11, 12, 23, 24].every((i) => (points[i]?.visibility ?? 0) > 0.55)) return null;
+  const shoulderX = (points[11].x + points[12].x) / 2;
+  const shoulderY = (points[11].y + points[12].y) / 2;
+  const hipX = (points[23].x + points[24].x) / 2;
+  const hipY = (points[23].y + points[24].y) / 2;
+  const torsoLength = Math.hypot(hipX - shoulderX, hipY - shoulderY);
+  return torsoLength > 0 ? (hipY - shoulderY) / torsoLength : null;
+}
 function stopCamera() {
   cancelAnimationFrame(animationFrame);
   poseLandmarker?.close(); poseLandmarker = null;
   cameraStream?.getTracks().forEach((track) => track.stop()); cameraStream = null;
+  raised = false; neckNeutralTurn = null; shoulderNeutralLift = null;
   $('#cameraVideo').srcObject = null; $('#cameraVideo').hidden = true; $('#cameraPlaceholder').hidden = false;
   const canvas = $('#poseCanvas'); canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
   $('#cameraButton').classList.remove('camera-on'); $('#cameraButton').innerHTML = '<span>⌾</span> Start camera';
