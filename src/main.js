@@ -241,7 +241,19 @@ const feedbackMessages = {
   'shoulder-rolls': 'Keep shoulder rolls small and comfortable. The camera shows shoulder level, but cannot measure the circular roll itself.',
   'neck-range': 'Turn your head slowly and stay within a comfortable range. Head turn and tilt are rough camera estimates.'
 };
-$('#liveExercise').addEventListener('change', () => { repCount = 0; raised = false; $('#repMetric').textContent = '0'; setStatus(feedbackMessages[$('#liveExercise').value] || 'Sit comfortably. Raise slowly only within your comfortable range.'); });
+function updateMovementMetrics() {
+  const mode = $('#liveExercise').value;
+  const armRaise = mode === 'seated-arm-raise';
+  const shoulderCheck = mode === 'shoulder-rolls';
+  $('#shoulderMetricCell').hidden = mode === 'neck-range';
+  $('#elbowMetricCell').hidden = !armRaise;
+  $('#neckMetricCell').hidden = mode !== 'neck-range';
+  $('#repMetricCell').hidden = !armRaise;
+  $('#shoulderMetricCell').firstChild.textContent = shoulderCheck ? 'Shoulder level ' : 'Shoulder raise ';
+  $('#neckMetricCell').firstChild.textContent = 'Head turn / tilt ';
+}
+updateMovementMetrics();
+$('#liveExercise').addEventListener('change', () => { repCount = 0; raised = false; $('#repMetric').textContent = '0'; updateMovementMetrics(); setStatus(feedbackMessages[$('#liveExercise').value] || 'Sit comfortably. Raise slowly only within your comfortable range.'); });
 $('#cameraButton').addEventListener('click', async () => {
   if (cameraStream) { stopCamera(); return; }
   if (!navigator.mediaDevices?.getUserMedia) { showToast('Camera access needs HTTPS or localhost.'); return; }
@@ -342,6 +354,7 @@ function processPose(points, worldPoints) {
   if (mode === 'shoulder-rolls') {
     const tilt = estimateShoulderTilt(points);
     if (tilt === null) { setStatus(feedbackMessages[mode]); return; }
+    $('#shoulderMetric').textContent = `${tilt > 0 ? '+' : ''}${Math.round(tilt)}°`;
     if (Math.abs(tilt) > 12) setStatus('Your shoulders appear tilted in the camera view. Find a comfortable, relaxed position.', 'warning');
     else setStatus('Your shoulders look roughly level. The camera cannot measure the rolling circle itself.', 'info');
     return;
@@ -350,12 +363,14 @@ function processPose(points, worldPoints) {
   const angle = Math.max(...shoulders.map((side) => side.shoulder));
   const elbowAngles = elbows.map((side) => side.elbow);
   const elbowDifference = elbowAngles.length > 1 ? Math.abs(elbowAngles[0] - elbowAngles[1]) : 0;
-  if (angle > 28 && !raised) { raised = true; }
-  if (angle < 13 && raised) { repCount += 1; raised = false; $('#repMetric').textContent = String(repCount); }
+  // Use a clear up/down hysteresis band: 13° was too strict for camera noise
+  // and users who cannot comfortably return their arm fully to their side.
+  if (angle > 35 && !raised) { raised = true; }
+  if (angle < 25 && raised) { repCount += 1; raised = false; $('#repMetric').textContent = String(repCount); }
   if (performance.now() - lastCueAt < 900) return;
   lastCueAt = performance.now();
   if (elbowDifference > 30) setStatus('Your elbows are bending differently. Try a slow, comfortable, balanced movement.', 'info');
-  else if (angle > 28 && angle < 120) setStatus('Nice, controlled lift. Lower slowly and stay within a comfortable range.', 'success');
+  else if (angle > 35 && angle < 120) setStatus('Nice, controlled lift. Lower slowly to complete the rep, staying within a comfortable range.', 'success');
   else if (angle >= 120) setStatus('That is a large shoulder raise estimate. Keep the range easy and stop before discomfort.', 'warning');
   else setStatus('When ready, raise slowly only as far as feels comfortable.', 'info');
 }
