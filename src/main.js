@@ -238,8 +238,8 @@ function renderRecommendations(data) {
 }
 
 const feedbackMessages = {
-  'shoulder-rolls': 'Keep the circles small and relaxed. This camera view cannot reliably measure shoulder rotation yet.',
-  'neck-range': 'Move slowly and stay comfortable. This camera view does not assess neck range accurately yet.'
+  'shoulder-rolls': 'Keep shoulder rolls small and comfortable. The camera shows shoulder level, but cannot measure the circular roll itself.',
+  'neck-range': 'Turn your head slowly and stay within a comfortable range. Head turn and tilt are rough camera estimates.'
 };
 $('#liveExercise').addEventListener('change', () => { repCount = 0; raised = false; $('#repMetric').textContent = '0'; setStatus(feedbackMessages[$('#liveExercise').value] || 'Sit comfortably. Raise slowly only within your comfortable range.'); });
 $('#cameraButton').addEventListener('click', async () => {
@@ -251,7 +251,7 @@ $('#cameraButton').addEventListener('click', async () => {
     $('#cameraPlaceholder').hidden = true; $('#cameraStatus').textContent = 'Camera preview on · local processing';
     $('#cameraButton').classList.add('camera-on'); $('#cameraButton').innerHTML = '<span>◉</span> Stop camera';
     $('#poseBadge').classList.add('live'); $('#poseBadge').querySelector('span:last-child').textContent = 'Starting pose model…';
-    setStatus('Loading the pose model for on device movement cues…');
+    setStatus('Loading the 3D pose model for on-device movement estimates…');
     await startPoseModel();
   } catch (error) {
     stopCamera();
@@ -267,7 +267,7 @@ async function startPoseModel() {
   try { poseLandmarker = await PoseLandmarker.createFromOptions(vision, { ...options, baseOptions: { ...options.baseOptions, delegate: 'GPU' } }); }
   catch { poseLandmarker = await PoseLandmarker.createFromOptions(vision, options); }
   $('#poseBadge').querySelector('span:last-child').textContent = 'On device pose tracking';
-  setStatus('Step back until your upper body is visible. Feedback is experimental; stop if anything hurts.');
+  setStatus('Keep your face, shoulders, elbows, wrists, and hips in view. Estimates are experimental; stop if anything hurts.');
   predictFrame();
 }
 function predictFrame() {
@@ -278,8 +278,9 @@ function predictFrame() {
     try {
       const result = poseLandmarker.detectForVideo(video, performance.now());
       const points = Array.isArray(result.landmarks?.[0]) ? result.landmarks[0] : [];
+      const worldPoints = Array.isArray(result.worldLandmarks?.[0]) ? result.worldLandmarks[0] : [];
       drawPose(points);
-      processPose(points);
+      processPose(points, worldPoints);
     } catch (error) {
       console.error('Pose tracking frame failed:', error);
       setStatus('Pose tracking stopped after a processing error. Stop and restart the camera to try again.', 'warning');
@@ -304,33 +305,85 @@ function drawPose(landmarks) {
   for (const point of landmarks) { if ((point.visibility ?? 0) < 0.45) continue; ctx.beginPath(); ctx.arc(point.x * width, point.y * height, 3, 0, Math.PI * 2); ctx.fill(); }
   ctx.restore();
 }
-function processPose(points) {
+function processPose(points, worldPoints) {
   if (!points.length) { setStatus('I can’t see a full pose yet. Adjust the camera or your position.'); $('#visibilityMetric').textContent = 'No pose'; return; }
-  const required = [11, 12, 13, 14, 23, 24];
+  const required = [7, 8, 11, 12, 13, 14, 15, 16, 23, 24];
   const visible = required.filter((i) => (points[i]?.visibility ?? 0) > 0.55).length / required.length;
   $('#visibilityMetric').textContent = `${Math.round(visible * 100)}%`;
-  if (visible < 0.65) { setStatus('Move into a brighter, wider view so your shoulders and hips are visible.'); return; }
-  if ($('#liveExercise').value !== 'seated-arm-raise') { setStatus(feedbackMessages[$('#liveExercise').value], 'info'); return; }
-  const arms = [];
-  if ([11, 13, 23].every((i) => (points[i]?.visibility ?? 0) > 0.55)) arms.push(180 - jointAngle(points[23], points[11], points[13]));
-  if ([12, 14, 24].every((i) => (points[i]?.visibility ?? 0) > 0.55)) arms.push(180 - jointAngle(points[24], points[12], points[14]));
-  if (!arms.length) { setStatus('Bring one shoulder, elbow, and hip into view.'); return; }
-  const angle = Math.max(...arms);
-  $('#angleMetric').textContent = `${Math.round(angle)}°`;
+  if (visible < 0.55) { setStatus('Move into a brighter, wider view so your face, shoulders, elbows, wrists, and hips are visible.'); return; }
+  if (worldPoints.length < 25) { setStatus('The 3D pose landmarks are not available yet. Adjust your position and try again.', 'warning'); return; }
+
+  const sides = [
+    { name: 'L', shoulder: 11, elbow: 13, wrist: 15, hip: 23 },
+    { name: 'R', shoulder: 12, elbow: 14, wrist: 16, hip: 24 }
+  ].map((side) => {
+    const shoulderVisible = [side.shoulder, side.elbow, side.hip].every((i) => (points[i]?.visibility ?? 0) > 0.45);
+    const elbowVisible = [side.shoulder, side.elbow, side.wrist].every((i) => (points[i]?.visibility ?? 0) > 0.45);
+    return {
+      name: side.name,
+      shoulder: shoulderVisible ? jointAngle3D(worldPoints[side.hip], worldPoints[side.shoulder], worldPoints[side.elbow]) : null,
+      elbow: elbowVisible ? 180 - jointAngle3D(worldPoints[side.shoulder], worldPoints[side.elbow], worldPoints[side.wrist]) : null
+    };
+  });
+  const shoulders = sides.filter((side) => side.shoulder !== null);
+  const elbows = sides.filter((side) => side.elbow !== null);
+  $('#shoulderMetric').textContent = formatSideAngles(shoulders, 'shoulder');
+  $('#elbowMetric').textContent = formatSideAngles(elbows, 'elbow');
+  const head = estimateHeadTurn(points);
+  $('#neckMetric').textContent = head ? `${head.turn > 0 ? '+' : ''}${head.turn}° / ${head.tilt > 0 ? '+' : ''}${head.tilt}°` : '—';
+
+  const mode = $('#liveExercise').value;
+  if (mode === 'neck-range') {
+    if (!head) { setStatus('Keep your face and both shoulders in view to estimate head movement.'); return; }
+    if (Math.abs(head.turn) > 35 || Math.abs(head.tilt) > 20) setStatus('That is a larger head movement estimate. Slow down and stay within a comfortable range.', 'warning');
+    else setStatus('Slow, gentle head movement detected. Stop if you feel pain, dizziness, or unusual discomfort.', 'success');
+    return;
+  }
+  if (mode === 'shoulder-rolls') {
+    const tilt = estimateShoulderTilt(points);
+    if (tilt === null) { setStatus(feedbackMessages[mode]); return; }
+    if (Math.abs(tilt) > 12) setStatus('Your shoulders appear tilted in the camera view. Find a comfortable, relaxed position.', 'warning');
+    else setStatus('Your shoulders look roughly level. The camera cannot measure the rolling circle itself.', 'info');
+    return;
+  }
+  if (!shoulders.length) { setStatus('Bring a shoulder, elbow, and hip into view.'); return; }
+  const angle = Math.max(...shoulders.map((side) => side.shoulder));
+  const elbowAngles = elbows.map((side) => side.elbow);
+  const elbowDifference = elbowAngles.length > 1 ? Math.abs(elbowAngles[0] - elbowAngles[1]) : 0;
   if (angle > 28 && !raised) { raised = true; }
   if (angle < 13 && raised) { repCount += 1; raised = false; $('#repMetric').textContent = String(repCount); }
   if (performance.now() - lastCueAt < 900) return;
   lastCueAt = performance.now();
-  if (angle > 28 && angle < 120) setStatus('Nice, controlled lift. Lower slowly and stay within a comfortable range.', 'success');
-  else if (angle >= 120) setStatus('You’re lifting high. Keep the range easy and stop before discomfort.', 'warning');
+  if (elbowDifference > 30) setStatus('Your elbows are bending differently. Try a slow, comfortable, balanced movement.', 'info');
+  else if (angle > 28 && angle < 120) setStatus('Nice, controlled lift. Lower slowly and stay within a comfortable range.', 'success');
+  else if (angle >= 120) setStatus('That is a large shoulder raise estimate. Keep the range easy and stop before discomfort.', 'warning');
   else setStatus('When ready, raise slowly only as far as feels comfortable.', 'info');
 }
-function jointAngle(a, b, c) {
-  const vector = (p) => [p.x - b.x, p.y - b.y];
+function formatSideAngles(sides, field) {
+  if (!sides.length) return '—';
+  return sides.map((side) => `${side.name} ${Math.round(side[field])}°`).join(' · ');
+}
+function jointAngle3D(a, b, c) {
+  const vector = (p) => [p.x - b.x, p.y - b.y, p.z - b.z];
   const v1 = vector(a), v2 = vector(c);
   const dot = v1[0] * v2[0] + v1[1] * v2[1];
+  const dot3D = dot + v1[2] * v2[2];
   const den = Math.hypot(...v1) * Math.hypot(...v2) || 1;
-  return Math.acos(Math.max(-1, Math.min(1, dot / den))) * (180 / Math.PI);
+  return Math.acos(Math.max(-1, Math.min(1, dot3D / den))) * (180 / Math.PI);
+}
+function estimateHeadTurn(points) {
+  if (![0, 7, 8, 11, 12].every((i) => (points[i]?.visibility ?? 0) > 0.45)) return null;
+  const earMidX = (points[7].x + points[8].x) / 2;
+  const halfEarWidth = Math.abs(points[8].x - points[7].x) / 2;
+  const turn = Math.atan2(points[0].x - earMidX, halfEarWidth || 0.001) * (180 / Math.PI);
+  const earTilt = Math.atan2(points[8].y - points[7].y, points[8].x - points[7].x);
+  const shoulderTilt = Math.atan2(points[12].y - points[11].y, points[12].x - points[11].x);
+  const tilt = ((earTilt - shoulderTilt + Math.PI / 2) % Math.PI + Math.PI) % Math.PI - Math.PI / 2;
+  return { turn: Math.round(turn), tilt: Math.round(tilt * (180 / Math.PI)) };
+}
+function estimateShoulderTilt(points) {
+  if (![11, 12].every((i) => (points[i]?.visibility ?? 0) > 0.45)) return null;
+  return Math.atan2(points[12].y - points[11].y, points[12].x - points[11].x) * (180 / Math.PI);
 }
 function stopCamera() {
   cancelAnimationFrame(animationFrame);
@@ -340,7 +393,7 @@ function stopCamera() {
   const canvas = $('#poseCanvas'); canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
   $('#cameraButton').classList.remove('camera-on'); $('#cameraButton').innerHTML = '<span>⌾</span> Start camera';
   $('#cameraStatus').textContent = 'Camera is off'; $('#poseBadge').classList.remove('live'); $('#poseBadge').querySelector('span:last-child').textContent = 'Camera off';
-  $('#visibilityMetric').textContent = '—'; $('#angleMetric').textContent = '—';
+  $('#visibilityMetric').textContent = '—'; $('#shoulderMetric').textContent = '—'; $('#elbowMetric').textContent = '—'; $('#neckMetric').textContent = '—';
 }
 
 const moodAdvice = { Tight: 'Take it extra gently or rest. Don’t exercise through pain.', Okay: 'Go slowly, stay comfortable, and pause if anything feels unusual.', Good: 'Keep your movement steady and within a comfortable range.', Great: 'Build gradually. You can always take a break.' };
