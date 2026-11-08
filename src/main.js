@@ -13,6 +13,13 @@ let lastVideoTime = -1;
 let repCount = 0;
 let raised = false;
 let lastCueAt = 0;
+const POSE_CONNECTIONS = [
+  [0, 1], [1, 2], [2, 3], [3, 7], [0, 4], [4, 5], [5, 6], [6, 8], [9, 10],
+  [11, 12], [11, 13], [13, 15], [15, 17], [15, 19], [15, 21], [17, 19],
+  [12, 14], [14, 16], [16, 18], [16, 20], [16, 22], [18, 20], [11, 23],
+  [12, 24], [23, 24], [23, 25], [24, 26], [25, 27], [26, 28], [27, 29],
+  [28, 30], [29, 31], [30, 32], [27, 31], [28, 32]
+];
 
 function showToast(message) {
   toast.textContent = message;
@@ -268,9 +275,16 @@ function predictFrame() {
   if (!poseLandmarker || video.readyState < 2) { animationFrame = requestAnimationFrame(predictFrame); return; }
   if (video.currentTime !== lastVideoTime) {
     lastVideoTime = video.currentTime;
-    const result = poseLandmarker.detectForVideo(video, performance.now());
-    drawPose(result.landmarks?.[0] || []);
-    processPose(result.landmarks?.[0] || []);
+    try {
+      const result = poseLandmarker.detectForVideo(video, performance.now());
+      const points = Array.isArray(result.landmarks?.[0]) ? result.landmarks[0] : [];
+      drawPose(points);
+      processPose(points);
+    } catch (error) {
+      console.error('Pose tracking frame failed:', error);
+      setStatus('Pose tracking stopped after a processing error. Stop and restart the camera to try again.', 'warning');
+      return;
+    }
   }
   animationFrame = requestAnimationFrame(predictFrame);
 }
@@ -283,7 +297,7 @@ function drawPose(landmarks) {
   const ctx = canvas.getContext('2d'); ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0); ctx.clearRect(0, 0, width, height); ctx.save(); ctx.translate(width, 0); ctx.scale(-1, 1);
   if (!landmarks.length) { ctx.restore(); return; }
   ctx.lineWidth = 2.5; ctx.strokeStyle = '#b5e388'; ctx.fillStyle = '#f5fff0';
-  for (const [a, b] of PoseLandmarker.POSE_CONNECTIONS) {
+  for (const [a, b] of POSE_CONNECTIONS) {
     if ((landmarks[a]?.visibility ?? 0) < 0.45 || (landmarks[b]?.visibility ?? 0) < 0.45) continue;
     ctx.beginPath(); ctx.moveTo(landmarks[a].x * width, landmarks[a].y * height); ctx.lineTo(landmarks[b].x * width, landmarks[b].y * height); ctx.stroke();
   }
