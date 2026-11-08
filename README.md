@@ -12,6 +12,15 @@ A student prototype for accessible home exercise guidance. It combines a user-co
 4. Start the app with `npm run dev` and open the Vite URL shown in the terminal.
 5. In Clerk, add that local URL to the development instance's allowed origins.
 
+## Deploy to Vercel
+
+The repository includes Vercel configuration for the Express API and builds the Vite frontend into Vercel's static `public/` assets. Add these environment variables in the Vercel project for the environments you deploy:
+
+- `VITE_CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY` from the same Clerk instance.
+- `GEMINI_API_KEY` if you want exercise recommendations to work.
+
+Use the keys for the Clerk instance intended for that deployment, add the deployed domain to that instance's allowed origins, and redeploy after changing environment variables.
+
 The `.env` file is ignored by Git. Never add real keys to source code, screenshots, commits, or a public repository.
 
 ## What works in the demo

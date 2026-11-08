@@ -11,7 +11,7 @@ const recommendationRequests = new Map();
 
 app.use(express.json({ limit: '32kb' }));
 app.use(clerkMiddleware({ publishableKey: process.env.VITE_CLERK_PUBLISHABLE_KEY }));
-app.use(express.static('dist'));
+app.use(express.static('public'));
 app.get('/api/config', (_req, res) => res.json({ clerkPublishableKey: process.env.VITE_CLERK_PUBLISHABLE_KEY || '' }));
 
 function signedIn(req, res, next) {
@@ -111,5 +111,6 @@ app.post('/api/recommend', signedIn, async (req, res) => {
   }
 });
 
-app.listen(port, () => console.log(`RehabRise running at http://localhost:${port}`));
+export default app;
+if (!process.env.VERCEL) app.listen(port, () => console.log(`RehabRise running at http://localhost:${port}`));
 

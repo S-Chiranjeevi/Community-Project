@@ -40,7 +40,12 @@ async function api(path, options = {}) {
 }
 
 async function initializeClerk() {
-  const { clerkPublishableKey } = await fetch('/api/config').then((response) => response.json());
+  const configResponse = await fetch('/api/config');
+  const contentType = configResponse.headers.get('content-type') || '';
+  if (!configResponse.ok || !contentType.includes('application/json')) {
+    throw new Error('The server API is missing from this deployment. Redeploy with the Vercel Express configuration and server environment variables.');
+  }
+  const { clerkPublishableKey } = await configResponse.json();
   if (!clerkPublishableKey) {
     document.body.classList.remove('auth-required');
     $('#authButton').textContent = 'Add Clerk keys';
@@ -334,10 +339,22 @@ $('.today-label').textContent = new Date().toLocaleDateString(undefined, { weekd
 window.addEventListener('beforeunload', stopCamera);
 initializeClerk().catch((error) => {
   console.error(error);
-  document.body.classList.remove('auth-required');
-  $('#signInNotice').hidden = false;
-  $('#signInNotice').textContent = `Clerk setup issue: ${error.message}. Check your local .env keys and restart the app.`;
-  showToast(`Clerk setup issue: ${error.message}`);
+  document.body.classList.add('auth-required');
+  $('#authModes').hidden = true;
+  $('#authHint').hidden = true;
+  $('#closeAuth').hidden = true;
+  const mount = $('#authMount');
+  mount.replaceChildren();
+  const message = document.createElement('p');
+  message.className = 'auth-error';
+  message.textContent = `We couldn’t connect to secure sign-in. ${error.message}`;
+  const retry = document.createElement('button');
+  retry.className = 'primary-button';
+  retry.type = 'button';
+  retry.textContent = 'Try again';
+  retry.addEventListener('click', () => window.location.reload());
+  mount.append(message, retry);
+  if (!$('#authDialog').open) $('#authDialog').showModal();
 });
 
 
