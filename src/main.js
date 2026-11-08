@@ -352,8 +352,8 @@ function processPose(points, worldPoints) {
     if (!head) { setStatus('Keep your face and both shoulders in view to estimate head movement.'); return; }
     if (neckNeutralTurn === null) neckNeutralTurn = head.turn;
     const turnFromNeutral = Math.abs(head.turn - neckNeutralTurn);
-    if (turnFromNeutral > 14 && !raised) raised = true;
-    if (turnFromNeutral < 7 && raised) { repCount += 1; raised = false; $('#repMetric').textContent = String(repCount); }
+    if (turnFromNeutral > 9 && !raised) raised = true;
+    if (turnFromNeutral < 5 && raised) { repCount += 1; raised = false; $('#repMetric').textContent = String(repCount); }
     if (Math.abs(head.tilt) > 20) setStatus('Your head tilt estimate is large. Keep the movement gentle and comfortable.', 'warning');
     else if (raised) setStatus('Good. Slowly return your head toward center to complete the rep.', 'success');
     else setStatus('Turn gently to either side, then return to center. Stop if you feel pain or dizziness.', 'info');
@@ -366,8 +366,8 @@ function processPose(points, worldPoints) {
     const lift = estimateShoulderLift(points);
     if (lift === null) { setStatus('Keep both shoulders and hips in view to count shoulder lifts.'); return; }
     if (shoulderNeutralLift === null) shoulderNeutralLift = lift;
-    if (lift > shoulderNeutralLift + 0.045 && !raised) raised = true;
-    if (lift < shoulderNeutralLift + 0.02 && raised) { repCount += 1; raised = false; $('#repMetric').textContent = String(repCount); }
+    if (lift > shoulderNeutralLift + 0.025 && !raised) raised = true;
+    if (lift < shoulderNeutralLift + 0.012 && raised) { repCount += 1; raised = false; $('#repMetric').textContent = String(repCount); }
     if (Math.abs(tilt) > 18) setStatus('Your shoulders look uneven in this camera view. Settle into a comfortable position.', 'warning');
     else if (raised) setStatus('Gently relax your shoulders to complete the rep.', 'success');
     else setStatus('Gently lift both shoulders, then relax. Stop if this causes discomfort.', 'info');
@@ -377,14 +377,14 @@ function processPose(points, worldPoints) {
   const angle = Math.max(...shoulders.map((side) => side.shoulder));
   const elbowAngles = elbows.map((side) => side.elbow);
   const elbowDifference = elbowAngles.length > 1 ? Math.abs(elbowAngles[0] - elbowAngles[1]) : 0;
-  // Use a clear up/down hysteresis band: 13° was too strict for camera noise
-  // and users who cannot comfortably return their arm fully to their side.
-  if (angle > 35 && !raised) { raised = true; }
-  if (angle < 25 && raised) { repCount += 1; raised = false; $('#repMetric').textContent = String(repCount); }
+  // A wide hysteresis band allows a comfortable partial raise and avoids
+  // requiring the arm to return to exactly the starting angle.
+  if (angle > 25 && !raised) { raised = true; }
+  if (angle < 18 && raised) { repCount += 1; raised = false; $('#repMetric').textContent = String(repCount); }
   if (performance.now() - lastCueAt < 900) return;
   lastCueAt = performance.now();
   if (elbowDifference > 30) setStatus('Your elbows are bending differently. Try a slow, comfortable, balanced movement.', 'info');
-  else if (angle > 35 && angle < 120) setStatus('Nice, controlled lift. Lower slowly to complete the rep, staying within a comfortable range.', 'success');
+  else if (angle > 25 && angle < 120) setStatus('Nice, controlled lift. Lower slowly to complete the rep, staying within a comfortable range.', 'success');
   else if (angle >= 120) setStatus('That is a large shoulder raise estimate. Keep the range easy and stop before discomfort.', 'warning');
   else setStatus('When ready, raise slowly only as far as feels comfortable.', 'info');
 }
