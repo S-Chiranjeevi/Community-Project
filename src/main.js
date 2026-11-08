@@ -122,6 +122,7 @@ function mountAuthScreen(mode) {
   const mount = $('#authMount');
   const tabs = $('#authModes');
   tabs.hidden = mode === 'profile';
+  $('#authHint').hidden = mode !== 'sign-up';
   for (const button of tabs.querySelectorAll('[data-auth-mode]')) {
     const selected = button.dataset.authMode === mode;
     button.classList.toggle('active', selected);
