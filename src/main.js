@@ -248,7 +248,9 @@ function updateMovementMetrics() {
   $('#shoulderMetricCell').hidden = mode === 'neck-range';
   $('#elbowMetricCell').hidden = !armRaise;
   $('#neckMetricCell').hidden = mode !== 'neck-range';
-  $('#repMetricCell').hidden = !armRaise;
+  // Keep the counter visible when users switch movements; only arm raises
+  // currently have a repetition detector wired to this value.
+  $('#repMetricCell').hidden = false;
   $('#shoulderMetricCell').firstChild.textContent = shoulderCheck ? 'Shoulder level ' : 'Shoulder raise ';
   $('#neckMetricCell').firstChild.textContent = 'Head turn / tilt ';
 }
