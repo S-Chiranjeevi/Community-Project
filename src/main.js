@@ -43,7 +43,7 @@ async function initializeClerk() {
   const configResponse = await fetch('/api/config');
   const contentType = configResponse.headers.get('content-type') || '';
   if (!configResponse.ok || !contentType.includes('application/json')) {
-    throw new Error('The server API is missing from this deployment. Redeploy with the Vercel Express configuration and server environment variables.');
+    throw new Error('The server API is missing from this deployment. Check that the Vercel build includes the API functions and server environment variables.');
   }
   const { clerkPublishableKey } = await configResponse.json();
   if (!clerkPublishableKey) {

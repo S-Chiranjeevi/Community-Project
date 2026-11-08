@@ -14,7 +14,7 @@ A student prototype for accessible home exercise guidance. It combines a user-co
 
 ## Deploy to Vercel
 
-The repository includes Vercel configuration for the Express API and builds the Vite frontend into Vercel's static `public/` assets. Add these environment variables in the Vercel project for the environments you deploy:
+The repository builds the Vite frontend as static files and routes `/api/config`, `/api/profile`, and `/api/recommend` through Vercel Functions backed by the Express handlers. Add these environment variables in the Vercel project for the environments you deploy:
 
 - `VITE_CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY` from the same Clerk instance.
 - `GEMINI_API_KEY` if you want exercise recommendations to work.
