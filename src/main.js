@@ -96,7 +96,6 @@ function updateAuthUI(state) {
   const user = state.user;
   if (signedIn && user) {
     document.body.classList.remove('auth-required');
-    document.body.classList.add('profile-required');
     $('#closeAuth').hidden = false;
     $('#authDialog').close();
     const slot = $('#userButton');
@@ -107,6 +106,7 @@ function updateAuthUI(state) {
     try { state.mountUserButton(slot.querySelector('#clerkUserButton')); } catch { /* The sign-in button remains available. */ }
     if (lastAuthenticatedUserId !== user.id) {
       lastAuthenticatedUserId = user.id;
+      document.body.classList.add('profile-required');
       loadProfile().catch((error) => showToast(error.message));
     }
   } else {
